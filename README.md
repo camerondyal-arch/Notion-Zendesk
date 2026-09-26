@@ -66,5 +66,5 @@ Where the app builds the prompt today, read from the custom object instead of No
 
 ## Adjusting to your setup
 
-- `readTeamName` and `readPlaybookPageId` in `sync.js` expect properties named `Team` and `Playbook`. Rename them to match your database.
+- The team registry is read from the team name in the title column (or a `Team` property) and the Part C page from `Playbook`, which can be a relation, a URL, or a text field holding a link or @-mention. See `readTeamName` and `readPlaybookPageId` in `sync.js`.
 - Optional: skip pages whose `last_edited_time` hasn't changed since the last run (store the timestamps in a record) to avoid re-walking unchanged pages.

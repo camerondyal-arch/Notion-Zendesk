@@ -70,7 +70,8 @@ async function pageToMarkdown(pageId) {
 }
 
 // --- Notion: read the team -> Part C registry from a database ---
-// Adjust the property names ("Team", "Playbook") to match your database schema.
+// Reads the team from "Team" or the title column, and the page from "Playbook"
+// (relation, URL, or a text field holding a link / page mention).
 async function getTeams() {
   const teams = [];
   let cursor;
@@ -92,7 +93,8 @@ async function getTeams() {
 
 function readTeamName(row) {
   const p = row.properties ?? {};
-  const t = p.Team ?? p.team;
+  // Prefer an explicit "Team" property, else fall back to the row's title (e.g. "Name").
+  const t = p.Team ?? p.team ?? Object.values(p).find((x) => x?.type === "title");
   if (!t) return null;
   if (t.type === "title") return slug(t.title?.map((x) => x.plain_text).join(""));
   if (t.type === "select") return slug(t.select?.name);
@@ -105,6 +107,14 @@ function readPlaybookPageId(row) {
   const pb = p.Playbook ?? p.playbook;
   if (pb?.type === "relation" && pb.relation?.[0]?.id) return pb.relation[0].id;
   if (pb?.type === "url" && pb.url) return extractPageId(pb.url);
+  if (pb?.type === "rich_text") {
+    // A pasted link or an @-mention of the page.
+    for (const rt of pb.rich_text ?? []) {
+      if (rt.type === "mention" && rt.mention?.type === "page") return rt.mention.page.id;
+      const id = extractPageId(rt.href ?? rt.text?.link?.url ?? rt.plain_text);
+      if (id) return id;
+    }
+  }
   return null;
 }
 
