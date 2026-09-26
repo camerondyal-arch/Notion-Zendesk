@@ -61,7 +61,7 @@ gh secret set ZENDESK_OBJECT_KEY     # optional; defaults to "support_prompt"
 
 ### 4. Run it
 
-- **Actions → Sync Notion playbooks to Zendesk → Run workflow**, or wait for the next scheduled run (4× a day: 9:17am, 12:17pm, 3:17pm and 6:17pm US Eastern).
+- **Actions → Sync Notion playbooks to Zendesk → Run workflow**, or wait for the daily scheduled run (7:17am US Eastern).
 - Check that the custom object records appear and that `content` looks right.
 
 To run locally, export the same variables and run `npm ci && npm run sync`.

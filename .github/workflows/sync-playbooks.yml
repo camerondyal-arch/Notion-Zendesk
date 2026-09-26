@@ -2,9 +2,9 @@ name: Sync Notion playbooks to Zendesk
 
 on:
   schedule:
-    # 4x a day at :17 past (off the top of the hour, when GitHub delays runs most):
-    # 13:17, 16:17, 19:17, 22:17 UTC = 9:17am, 12:17pm, 3:17pm, 6:17pm US Eastern (EDT).
-    - cron: "17 13,16,19,22 * * *"
+    # Once a day at 11:17 UTC = 7:17am US Eastern (EDT), before the workday starts.
+    # :17 past avoids the top of the hour, when GitHub delays runs most.
+    - cron: "17 11 * * *"
   workflow_dispatch: {}       # adds a manual "Run workflow" button in the Actions tab
 
 permissions:
