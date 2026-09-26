@@ -162,7 +162,21 @@ async function upsertRecord(externalId, fields) {
       await sleep(retryAfter * 1000);
       continue;
     }
-    throw new Error(`Zendesk upsert "${externalId}" failed: ${res.status} ${await res.text()}`);
+    const detail = await res.text();
+    if (res.status === 404) {
+      // Tell "object doesn't exist" apart from "endpoint/record problem".
+      const probe = await fetch(
+        `https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/custom_objects/${encodeURIComponent(ZENDESK_OBJECT_KEY)}`,
+        { headers: { Authorization: `Basic ${auth}` } },
+      );
+      if (probe.status === 404) {
+        throw new Error(
+          `Zendesk custom object "${ZENDESK_OBJECT_KEY}" not found. Create it in Admin Center -> ` +
+            `Objects and rules -> Custom objects, or set ZENDESK_OBJECT_KEY to its key.`,
+        );
+      }
+    }
+    throw new Error(`Zendesk upsert "${externalId}" failed: ${res.status} ${detail}`);
   }
 }
 
