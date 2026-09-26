@@ -1,0 +1,41 @@
+name: Sync Notion playbooks to Zendesk
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # every 30 minutes (UTC). Adjust to taste.
+  workflow_dispatch: {}       # adds a manual "Run workflow" button in the Actions tab
+
+permissions:
+  contents: read
+
+# Never let two syncs overlap.
+concurrency:
+  group: sync-playbooks
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Compile playbooks and push to Zendesk
+        env:
+          NOTION_API_KEY:        ${{ secrets.NOTION_API_KEY }}
+          NOTION_PLAYBOOK_DB_ID: ${{ secrets.NOTION_PLAYBOOK_DB_ID }}
+          SHARED_PAGE_A:         ${{ secrets.SHARED_PAGE_A }}
+          SHARED_PAGE_B:         ${{ secrets.SHARED_PAGE_B }}
+          SHARED_PAGE_D:         ${{ secrets.SHARED_PAGE_D }}
+          ZENDESK_SUBDOMAIN:     ${{ secrets.ZENDESK_SUBDOMAIN }}
+          ZENDESK_EMAIL:         ${{ secrets.ZENDESK_EMAIL }}
+          ZENDESK_API_TOKEN:     ${{ secrets.ZENDESK_API_TOKEN }}
+          ZENDESK_OBJECT_KEY:    ${{ secrets.ZENDESK_OBJECT_KEY }}
+        run: node sync.js

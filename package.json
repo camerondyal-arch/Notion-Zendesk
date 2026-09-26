@@ -1,0 +1,17 @@
+{
+  "name": "notion-zendesk-playbook-sync",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Compiles Notion support playbooks into per-team prompt blocks and upserts them into a Zendesk custom object.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "sync": "node sync.js"
+  },
+  "dependencies": {
+    "@notionhq/client": "^2.2.15",
+    "notion-to-md": "^3.1.9"
+  }
+}
