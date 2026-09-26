@@ -234,6 +234,41 @@ async function writeBlock(block, content, extraFields = {}) {
   console.log(`Synced "${block}" (${content.length} chars in ${chunks.length} chunk(s))`);
 }
 
+// Read a block back exactly the way the Zendesk app does: list records filtered
+// by external_id (index first, then its chunks) and join the chunk contents.
+async function fetchRecordContents(externalIds) {
+  const auth = Buffer.from(`${ZENDESK_EMAIL}/token:${ZENDESK_API_TOKEN}`).toString("base64");
+  const out = {};
+  for (let i = 0; i < externalIds.length; i += 100) {
+    const batch = externalIds.slice(i, i + 100);
+    const url =
+      `https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/custom_objects/` +
+      `${encodeURIComponent(ZENDESK_OBJECT_KEY)}/records?page[size]=100` +
+      `&filter[external_ids]=${encodeURIComponent(batch.join(","))}`;
+    const res = await fetch(url, { headers: { Authorization: `Basic ${auth}` } });
+    if (!res.ok) throw new Error(`Zendesk read-back failed: ${res.status} ${await res.text()}`);
+    const json = await res.json();
+    for (const r of json.custom_object_records ?? []) {
+      if (batch.includes(r.external_id)) out[r.external_id] = r.custom_object_fields?.content ?? "";
+    }
+  }
+  return out;
+}
+
+async function verifyBlock(block, expected) {
+  const index = await fetchRecordContents([block]);
+  if (index[block] === undefined) throw new Error(`Read-back: index record "${block}" not found`);
+  const { chunks } = JSON.parse(index[block]);
+  const ids = Array.from({ length: chunks }, (_, i) => `${block}#${i + 1}`);
+  const parts = await fetchRecordContents(ids);
+  const missing = ids.filter((id) => parts[id] === undefined);
+  if (missing.length) throw new Error(`Read-back: "${block}" is missing ${missing.join(", ")}`);
+  if (ids.map((id) => parts[id]).join("") !== expected) {
+    throw new Error(`Read-back: "${block}" content does not match what was written`);
+  }
+  console.log(`Verified "${block}" reads back intact (${chunks} chunk(s))`);
+}
+
 async function main() {
   // Shared block: A + B + D. Fetched sequentially to stay gentle on Notion's
   // ~3 req/s limit (each page fans out into many block calls internally).
@@ -248,6 +283,7 @@ async function main() {
   ].join("\n\n---\n\n");
 
   await writeBlock("shared", shared);
+  await verifyBlock("shared", shared);
 
   // Per-team Part C. One team failing shouldn't block the others.
   const teams = await getTeams();
@@ -257,6 +293,7 @@ async function main() {
       const c = await pageToMarkdown(pageId);
       const content = "## Part C - Team Playbook\n\n" + c;
       await writeBlock(`part_c:${team}`, content, { team });
+      await verifyBlock(`part_c:${team}`, content);
     } catch (err) {
       console.error(`Failed "part_c:${team}":`, err);
       failures.push(team);
