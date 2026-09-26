@@ -5,8 +5,13 @@
 // waiting on it, so the slow (~60s) Notion block-walk is fine here.
 //
 // Output model (assemble-from-parts, so the giant Part D is stored ONCE):
-//   record external_id "shared"           -> Part A + Part B + Part D
-//   record external_id "part_c:<team>"    -> that team's Part C, one per team
+//   block "shared"           -> Part A + Part B + Part D
+//   block "part_c:<team>"    -> that team's Part C, one per team
+//
+// Zendesk caps a custom object record at 32 KB, so each block is split into
+// chunk records "<block>#1", "<block>#2", ... and an index record "<block>"
+// whose content is JSON: {"chunks": N}. To read a block, fetch the index, then
+// chunks 1..N in order and join them with no separator.
 //
 // Your Zendesk app then reads  shared + part_c:<selectedTeam>  at draft time
 // and concatenates in this order (stable content first, for prompt caching):
@@ -180,6 +185,55 @@ async function upsertRecord(externalId, fields) {
   }
 }
 
+// Zendesk measures the 32 KB cap on the JSON-encoded record. Budget well under
+// it, counting each character as it would be escaped (non-ASCII as \uXXXX).
+const CHUNK_BUDGET = 24_000;
+const encodedSize = (str) => JSON.stringify(str).replace(/[^\x00-\x7f]/g, "\\uXXXX").length;
+
+// Split on paragraph breaks where possible; hard-split any oversized paragraph.
+function splitIntoChunks(text) {
+  const chunks = [];
+  let cur = "";
+  for (const para of text.split(/(?<=\n\n)/)) {
+    if (encodedSize(cur + para) <= CHUNK_BUDGET) {
+      cur += para;
+      continue;
+    }
+    if (cur) chunks.push(cur);
+    cur = "";
+    let rest = para;
+    while (encodedSize(rest) > CHUNK_BUDGET) {
+      let cut = Math.floor(rest.length / 2);
+      let step = cut;
+      // Largest prefix that fits (binary search on length).
+      while (step > 1) {
+        step = Math.ceil(step / 2);
+        cut += encodedSize(rest.slice(0, cut)) > CHUNK_BUDGET ? -step : step;
+      }
+      while (encodedSize(rest.slice(0, cut)) > CHUNK_BUDGET) cut--;
+      // Don't split a surrogate pair.
+      if (/[\ud800-\udbff]/.test(rest[cut - 1])) cut--;
+      chunks.push(rest.slice(0, cut));
+      rest = rest.slice(cut);
+    }
+    cur = rest;
+  }
+  if (cur || !chunks.length) chunks.push(cur);
+  return chunks;
+}
+
+// Write chunks first, then the index, so readers never see an index that
+// points past the chunks written so far. Leftover chunks beyond N from an
+// earlier, longer sync are harmless: readers stop at N.
+async function writeBlock(block, content, extraFields = {}) {
+  const chunks = splitIntoChunks(content);
+  for (let i = 0; i < chunks.length; i++) {
+    await upsertRecord(`${block}#${i + 1}`, { content: chunks[i], ...extraFields });
+  }
+  await upsertRecord(block, { content: JSON.stringify({ chunks: chunks.length }), ...extraFields });
+  console.log(`Synced "${block}" (${content.length} chars in ${chunks.length} chunk(s))`);
+}
+
 async function main() {
   // Shared block: A + B + D. Fetched sequentially to stay gentle on Notion's
   // ~3 req/s limit (each page fans out into many block calls internally).
@@ -193,8 +247,7 @@ async function main() {
     "## Part D - Help Center Article Directory\n\n" + d,
   ].join("\n\n---\n\n");
 
-  await upsertRecord("shared", { content: shared });
-  console.log(`Synced "shared" (${shared.length} chars)`);
+  await writeBlock("shared", shared);
 
   // Per-team Part C. One team failing shouldn't block the others.
   const teams = await getTeams();
@@ -203,8 +256,7 @@ async function main() {
     try {
       const c = await pageToMarkdown(pageId);
       const content = "## Part C - Team Playbook\n\n" + c;
-      await upsertRecord(`part_c:${team}`, { content, team });
-      console.log(`Synced "part_c:${team}" (${content.length} chars)`);
+      await writeBlock(`part_c:${team}`, content, { team });
     } catch (err) {
       console.error(`Failed "part_c:${team}":`, err);
       failures.push(team);

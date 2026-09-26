@@ -4,10 +4,21 @@ A scheduled GitHub Action compiles the Notion playbooks into per-team prompt blo
 
 ## What each record holds
 
-| `external_id` | Content |
+| Block | Content |
 |---|---|
 | `shared` | Part A + Part B + Part D (the same for every team) |
-| `part_c:<team>` | That team's Part C (one record per team) |
+| `part_c:<team>` | That team's Part C (one block per team) |
+
+Zendesk caps each custom object record at 32 KB, so every block is stored as chunk records plus an index:
+
+| `external_id` | `content` |
+|---|---|
+| `shared` | Index: `{"chunks": N}` |
+| `shared#1` … `shared#N` | The block's text, in order |
+| `part_c:support` | Index: `{"chunks": N}` |
+| `part_c:support#1` … | The block's text, in order |
+
+To read a block, fetch the index record, then chunks `1..N`, and join them with no separator.
 
 The app assembles `shared` + `part_c:<selectedTeam>` + conversation. Stable content goes first so prompt caching stays warm across teams.
 
@@ -24,7 +35,7 @@ The object key goes in `ZENDESK_OBJECT_KEY`.
 
 Create an API token under **Admin Center → Apps and integrations → APIs → Zendesk API**. The sync authenticates as `{email}/token:{api_token}`.
 
-> **Size check:** Zendesk text fields have a length cap. The full Part D (~220KB compiled) may not fit in one field. Trimming Part D to only the relevant links drops it to ~60–70KB, which stores comfortably. The sync logs each record's size, and Zendesk rejects an oversized upsert with a 4xx error.
+> **Size:** each record is capped at 32 KB, which the sync handles by chunking (see above). Trimming Part D to only the relevant links still helps: it means fewer records for the app to fetch and a smaller prompt.
 
 ### 2. Notion: get the IDs and grant access
 
@@ -59,8 +70,8 @@ To run locally, export the same variables and run `npm ci && npm run sync`.
 
 Where the app builds the prompt today, read from the custom object instead of Notion:
 
-1. Read the record with external ID `shared`.
-2. Read `part_c:<selectedTeam>`. Normalize the team name the same way the sync does: trim, lowercase, and replace runs of whitespace with `-`.
+1. Read the `shared` block: fetch record `shared`, parse its `content` as JSON to get `chunks`, then fetch `shared#1` … `shared#<chunks>` and join their `content`.
+2. Read the `part_c:<selectedTeam>` block the same way. Normalize the team name the same way the sync does: trim, lowercase, and replace runs of whitespace with `-`.
 3. Send `shared` + `part_c:<team>` + conversation to Claude, in that order.
 4. Add a prompt-cache breakpoint after `shared`, and optionally another after Part C.
 
