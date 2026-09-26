@@ -25,6 +25,10 @@ const REQUIRED = [
   "ZENDESK_EMAIL",
   "ZENDESK_API_TOKEN",
 ];
+// Strip stray whitespace/newlines that often ride along when pasting secrets.
+for (const k of [...REQUIRED, "ZENDESK_OBJECT_KEY"]) {
+  if (process.env[k]) process.env[k] = process.env[k].trim();
+}
 const missing = REQUIRED.filter((k) => !process.env[k]);
 if (missing.length) {
   console.error(`Missing required env vars: ${missing.join(", ")}`);
